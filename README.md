@@ -1,4 +1,4 @@
-# SparkLoop Survey Demo
+# SparkLoop Client API Survey
 
 A static GitHub Pages site that uses the [SparkLoop Client API](https://docs.sparkloop.app/client-api) (`SL.client.surveys`) to fetch a welcome survey with its promotions, render it (including conditional items), and submit the reader's answers and chosen promotions.
 
