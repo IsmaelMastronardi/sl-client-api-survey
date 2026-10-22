@@ -47,6 +47,12 @@
     .status.error { color: var(--error); }
     .done { color: var(--ok); }
     a { color: var(--accent); }
+    .debug { margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border); }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .debug table { width: 100%; border-collapse: collapse; font-size: .875rem; margin-top: 8px; }
+    .debug th, .debug td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .debug pre { background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; font-size: .8rem; }
+    .debug summary { cursor: pointer; color: var(--muted); font-size: .875rem; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -221,7 +227,68 @@
       form.appendChild(el("a", { href: "#", class: "skip", onclick: (e) => { e.preventDefault(); setStatus("Survey skipped."); } }, survey.skip_link));
     }
     app.appendChild(form);
+
+    // Test-mode only: send a deliberately broken submission to see SparkLoop's validation errors
+    if (TEST_MODE) {
+      app.appendChild(el("div", { class: "debug" },
+        el("button", { type: "button", class: "secondary", id: "submit-invalid", onclick: submitInvalid }, "Submit invalid answers (test)"),
+        el("div", { id: "invalid-result" })));
+    }
     refreshVisibility();
+  }
+
+  // One wrong answer per question, picked to trigger a different error code for each input type
+  function buildInvalidAnswers() {
+    const questions = survey.items.filter((i) => i.type === "question");
+    const out = [];
+    for (const q of questions) {
+      const opts = q.options || [];
+      if (q.input_type === "text_input") {
+        out.push({ question_uuid: q.uuid, value: ["a", "list"] });             // not_a_single_value
+      } else if (q.input_type === "single_select") {
+        out.push({ question_uuid: q.uuid, value: "not-an-option" });           // invalid_option
+      } else if (q.input_type === "multi_select") {
+        if (q.max_selections && opts.length > q.max_selections) {
+          out.push({ question_uuid: q.uuid, value: opts.slice(0, q.max_selections + 1) }); // too_many_selections
+        } else if (opts.length) {
+          out.push({ question_uuid: q.uuid, value: [opts[0], opts[0]] });      // duplicate_option
+        } else {
+          out.push({ question_uuid: q.uuid, value: "not-a-list" });            // not_a_list
+        }
+      } else if (q.input_type === "checkbox") {
+        out.push({ question_uuid: q.uuid, value: "No" });                      // not_checked (when required)
+      }
+    }
+    if (questions[0]) out.push({ question_uuid: questions[0].uuid, value: "again" }); // duplicate_question
+    out.push({ question_uuid: "survey_question_does_not_exist", value: "x" });       // blank (unknown uuid)
+    return out;
+  }
+
+  async function submitInvalid() {
+    const btn = document.getElementById("submit-invalid");
+    const result = document.getElementById("invalid-result");
+    const answersSent = buildInvalidAnswers();
+    btn.disabled = true;
+    result.innerHTML = "";
+    try {
+      await SL.client.surveys.submit({ uuid: survey.uuid, email: "test@example.com", answers: answersSent, promotionUuids: [] });
+      result.appendChild(el("p", { class: "status" }, "Unexpected: SparkLoop accepted the submission."));
+    } catch (error) {
+      const labelFor = (uuid) => (survey.items.find((i) => i.uuid === uuid) || {}).label || uuid;
+      result.appendChild(el("p", { class: "err" },
+        `${error.name || "Error"} ${error.status || ""} [${error.code || "?"}]: ${error.message || ""}`));
+      if (error.details && error.details.length) {
+        result.appendChild(el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "Question"), el("th", {}, "Code"), el("th", {}, "Message"))),
+          el("tbody", {}, error.details.map((d) =>
+            el("tr", {}, el("td", {}, labelFor(d.question_uuid)), el("td", {}, el("code", {}, d.code)), el("td", {}, d.message))))));
+      }
+    } finally {
+      btn.disabled = false;
+    }
+    result.appendChild(el("details", {},
+      el("summary", {}, "Answers sent"),
+      el("pre", {}, JSON.stringify(answersSent, null, 2))));
   }
 
   function clearErrors() {
