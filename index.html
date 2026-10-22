@@ -63,11 +63,11 @@
 </main>
 
 <script>
-  // Config: override with ?pub=pub_xxx&survey=survey_xxx. Test mode is ON unless ?live=true.
+  // Config: override with ?pub=pub_xxx&survey=survey_xxx. Live by default; add ?test_mode=true for a dry run.
   const params = new URLSearchParams(location.search);
   const PUB_ID = params.get("pub") || "pub_6aa6c1374096";
   const SURVEY_ID = params.get("survey") || "survey_a800a880e760";
-  const TEST_MODE = params.get("live") !== "true";
+  const TEST_MODE = params.get("test_mode") === "true";
 
   window.SL = { mode: "client", test_mode: TEST_MODE };
 
@@ -201,7 +201,7 @@
 
   function renderSurvey() {
     app.innerHTML = "";
-    if (TEST_MODE) app.appendChild(el("div", { class: "banner" }, "Test mode is on: nothing is recorded. Add ?live=true to the URL for real traffic."));
+    if (TEST_MODE) app.appendChild(el("div", { class: "banner" }, "Test mode is on: nothing is recorded. Remove ?test_mode=true from the URL for real traffic."));
     app.appendChild(el("h1", {}, survey.header || ""));
     if (survey.subheader) app.appendChild(el("p", { class: "sub" }, survey.subheader));
 
@@ -228,12 +228,10 @@
     }
     app.appendChild(form);
 
-    // Test-mode only: send a deliberately broken submission to see SparkLoop's validation errors
-    if (TEST_MODE) {
-      app.appendChild(el("div", { class: "debug" },
-        el("button", { type: "button", class: "secondary", id: "submit-invalid", onclick: submitInvalid }, "Submit invalid answers (test)"),
-        el("div", { id: "invalid-result" })));
-    }
+    // Send a deliberately broken submission to see SparkLoop's validation errors (invalid submissions are never saved)
+    app.appendChild(el("div", { class: "debug" },
+      el("button", { type: "button", class: "secondary", id: "submit-invalid", onclick: submitInvalid }, "Submit invalid answers"),
+      el("div", { id: "invalid-result" })));
     refreshVisibility();
   }
 

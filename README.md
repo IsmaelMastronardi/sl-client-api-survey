@@ -6,6 +6,6 @@ A static GitHub Pages site that uses the [SparkLoop Client API](https://docs.spa
 
 - `pub` — publication ID (default `pub_6aa6c1374096`)
 - `survey` — survey UUID (default `survey_a800a880e760`)
-- `live=true` — disable test mode. **Test mode is on by default**, so nothing is recorded.
+- `test_mode=true` — run in SparkLoop test mode (nothing is recorded). **Without it the page is live** and submissions are real.
 
 The Client API only accepts calls from allowlisted origins, so this site's host (e.g. `<user>.github.io`) must be registered for the publication — otherwise calls fail with `forbidden` (403).
