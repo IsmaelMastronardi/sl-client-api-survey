@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SparkLoop Survey Demo</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #5b6470; --border: #d9dde3;
+      --accent: #4f46e5; --accent-text: #fff; --error: #c62828; --ok: #2e7d32; --warn-bg: #fff8e1;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111418; --card: #1a1e24; --text: #e8eaed; --muted: #9aa3ad; --border: #2e343c;
+        --accent: #818cf8; --accent-text: #0b0d10; --error: #ef9a9a; --ok: #81c784; --warn-bg: #2a2416;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+    h1 { margin: 0 0 4px; font-size: 1.6rem; }
+    .sub { color: var(--muted); margin: 0 0 24px; }
+    .banner { background: var(--warn-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: .875rem; margin-bottom: 16px; }
+    .field { margin-bottom: 20px; }
+    .field > label, .field > legend { display: block; font-weight: 600; margin-bottom: 6px; padding: 0; }
+    fieldset { border: 0; margin: 0 0 20px; padding: 0; min-width: 0; }
+    input[type=text], input[type=email], input[type=tel], input:not([type]) {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit;
+    }
+    .opt { display: flex; gap: 8px; align-items: center; padding: 4px 0; font-weight: 400; }
+    .req { color: var(--error); }
+    .hint { color: var(--muted); font-size: .85rem; font-weight: 400; }
+    .err { color: var(--error); font-size: .875rem; margin-top: 4px; }
+    .promo { display: flex; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 20px; cursor: pointer; align-items: flex-start; }
+    .promo:has(input:checked) { border-color: var(--accent); }
+    .promo img { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; flex: none; background: #fff; }
+    .promo .title { font-weight: 600; }
+    .promo .desc { color: var(--muted); font-size: .9rem; }
+    .promo .tag { display: inline-block; font-size: .75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; margin-left: 6px; }
+    .promo input { margin-top: 4px; }
+    button { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 12px 20px; font: inherit; font-weight: 600; cursor: pointer; width: 100%; }
+    button:disabled { opacity: .6; cursor: progress; }
+    .skip { display: block; text-align: center; margin-top: 12px; color: var(--muted); }
+    .terms { font-size: .85rem; color: var(--muted); margin: 12px 0; }
+    .status { color: var(--muted); }
+    .status.error { color: var(--error); }
+    .done { color: var(--ok); }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card" id="app">
+    <p class="status" id="status">Loading SparkLoop…</p>
+  </div>
+</main>
+
+<script>
+  // Config: override with ?pub=pub_xxx&survey=survey_xxx. Test mode is ON unless ?live=true.
+  const params = new URLSearchParams(location.search);
+  const PUB_ID = params.get("pub") || "pub_6aa6c1374096";
+  const SURVEY_ID = params.get("survey") || "survey_a800a880e760";
+  const TEST_MODE = params.get("live") !== "true";
+
+  window.SL = { mode: "client", test_mode: TEST_MODE };
+
+  const s = document.createElement("script");
+  s.async = true;
+  s.src = "https://js.sparkloop.app/embed.js?publication_id=" + encodeURIComponent(PUB_ID);
+  s.setAttribute("data-sparkloop", "");
+  s.onerror = () => setStatus("Failed to load the SparkLoop script.", true);
+  document.head.appendChild(s);
+</script>
+
+<script>
+  const app = document.getElementById("app");
+  let survey = null;
+  const answers = {};       // question uuid -> current answer
+  const chosen = new Set(); // promotion item uuids the reader chose
+
+  function setStatus(msg, isError) {
+    app.innerHTML = "";
+    const p = el("p", { class: "status" + (isError ? " error" : "") }, msg);
+    app.appendChild(p);
+  }
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === undefined || v === null || v === false) continue;
+      if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of children.flat()) {
+      if (c === null || c === undefined) continue;
+      node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    }
+    return node;
+  }
+
+  function isVisible(item) {
+    if (!item.condition) return true;
+    const trigger = survey.items.find((o) => o.uuid === item.condition.question_uuid);
+    if (!trigger || !isVisible(trigger)) return false;
+    const answer = answers[trigger.uuid];
+    return Array.isArray(answer) ? answer.includes(item.condition.value) : answer === item.condition.value;
+  }
+
+  function refreshVisibility() {
+    for (const item of survey.items) {
+      const node = document.getElementById("item-" + item.uuid);
+      if (node) node.hidden = !isVisible(item);
+    }
+  }
+
+  function setAnswer(uuid, value) {
+    const empty = value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+    if (empty) delete answers[uuid]; else answers[uuid] = value;
+    refreshVisibility();
+  }
+
+  function renderQuestion(q) {
+    const id = "q-" + q.uuid;
+    const req = q.required ? el("span", { class: "req" }, " *") : null;
+    const errNode = el("div", { class: "err", id: "err-" + q.uuid });
+
+    if (q.input_type === "text_input") {
+      return el("div", { class: "field", id: "item-" + q.uuid },
+        el("label", { for: id }, q.label, req),
+        el("input", {
+          id, type: q.html_type || "text", autocomplete: q.autocomplete, required: q.required,
+          oninput: (e) => setAnswer(q.uuid, e.target.value.trim()),
+        }),
+        errNode);
+    }
+
+    if (q.input_type === "checkbox") {
+      return el("div", { class: "field", id: "item-" + q.uuid },
+        el("label", { class: "opt" },
+          el("input", { type: "checkbox", onchange: (e) => setAnswer(q.uuid, e.target.checked ? "Yes" : undefined) }),
+          el("span", {}, q.label, req)),
+        errNode);
+    }
+
+    if (q.input_type === "single_select" || q.input_type === "multi_select") {
+      const multi = q.input_type === "multi_select";
+      const fs = el("fieldset", { id: "item-" + q.uuid },
+        el("legend", {}, q.label, req,
+          multi && q.max_selections ? el("span", { class: "hint" }, ` (pick up to ${q.max_selections})`) : null));
+      for (const opt of q.options || []) {
+        fs.appendChild(el("label", { class: "opt" },
+          el("input", {
+            type: multi ? "checkbox" : "radio", name: id, value: opt,
+            onchange: (e) => {
+              const picked = [...fs.querySelectorAll("input:checked")].map((i) => i.value);
+              if (multi && q.max_selections && picked.length > q.max_selections) {
+                e.target.checked = false;
+                return;
+              }
+              setAnswer(q.uuid, multi ? picked : picked[0]);
+            },
+          }),
+          el("span", {}, opt)));
+      }
+      fs.appendChild(errNode);
+      return fs;
+    }
+
+    return el("div", { class: "field hint", id: "item-" + q.uuid }, `Unsupported question type: ${q.input_type}`);
+  }
+
+  function renderPromotion(p) {
+    let logo, title, desc, tag;
+    if (p.kind === "offer" && p.offer) {
+      logo = p.offer.brand_logo;
+      title = p.offer.headline;
+      desc = p.offer.description;
+      tag = p.offer.callout || "Offer";
+    } else if (p.kind === "recommendation" && p.recommendation) {
+      logo = p.recommendation.logo;
+      title = p.recommendation.name;
+      desc = p.recommendation.description;
+      tag = "Newsletter";
+    } else {
+      return el("div", { id: "item-" + p.uuid });
+    }
+    return el("label", { class: "promo", id: "item-" + p.uuid },
+      el("input", { type: "checkbox", onchange: (e) => e.target.checked ? chosen.add(p.uuid) : chosen.delete(p.uuid) }),
+      logo ? el("img", { src: logo, alt: "" }) : null,
+      el("div", {},
+        el("div", { class: "title" }, title || "", el("span", { class: "tag" }, tag)),
+        desc ? el("div", { class: "desc" }, desc) : null));
+  }
+
+  function renderSurvey() {
+    app.innerHTML = "";
+    if (TEST_MODE) app.appendChild(el("div", { class: "banner" }, "Test mode is on: nothing is recorded. Add ?live=true to the URL for real traffic."));
+    app.appendChild(el("h1", {}, survey.header || ""));
+    if (survey.subheader) app.appendChild(el("p", { class: "sub" }, survey.subheader));
+
+    const form = el("form", { novalidate: true, onsubmit: onSubmit });
+    form.appendChild(el("div", { class: "field" },
+      el("label", { for: "email" }, "Email", el("span", { class: "req" }, " *")),
+      el("input", { id: "email", type: "email", autocomplete: "email", required: true }),
+      el("div", { class: "err", id: "err-email" })));
+
+    for (const item of survey.items || []) {
+      form.appendChild(item.type === "question" ? renderQuestion(item) : renderPromotion(item));
+    }
+
+    const t = survey.custom_terms;
+    if (t && t.enabled && t.text) {
+      form.appendChild(el("p", { class: "terms" },
+        t.url ? el("a", { href: t.url, target: "_blank", rel: "noopener" }, t.text) : t.text));
+    }
+
+    form.appendChild(el("div", { class: "err", id: "err-form" }));
+    form.appendChild(el("button", { type: "submit", id: "submit" }, survey.button_label || "Submit"));
+    if (survey.skip_link) {
+      form.appendChild(el("a", { href: "#", class: "skip", onclick: (e) => { e.preventDefault(); setStatus("Survey skipped."); } }, survey.skip_link));
+    }
+    app.appendChild(form);
+    refreshVisibility();
+  }
+
+  function clearErrors() {
+    app.querySelectorAll(".err").forEach((n) => (n.textContent = ""));
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    clearErrors();
+    const email = document.getElementById("email").value.trim();
+    if (!email) {
+      document.getElementById("err-email").textContent = "Email is required.";
+      return;
+    }
+
+    const visiblePromos = survey.items.filter((i) => i.type === "promotion" && isVisible(i) && chosen.has(i.uuid));
+    const payload = {
+      uuid: survey.uuid,
+      email,
+      answers: survey.items
+        .filter((i) => i.type === "question" && isVisible(i) && i.uuid in answers)
+        .map((i) => ({ question_uuid: i.uuid, value: answers[i.uuid] })),
+      promotionUuids: visiblePromos.map((i) => i.uuid),
+    };
+
+    const btn = document.getElementById("submit");
+    btn.disabled = true;
+    try {
+      await SL.client.surveys.submit(payload);
+      showThankYou(visiblePromos);
+    } catch (error) {
+      btn.disabled = false;
+      if (error.code === "invalid_answers") {
+        for (const { question_uuid, message } of error.details || []) {
+          const n = document.getElementById("err-" + question_uuid);
+          if (n) n.textContent = message;
+          else document.getElementById("err-form").textContent += message + " ";
+        }
+      } else {
+        document.getElementById("err-form").textContent =
+          (error.code ? `[${error.code}] ` : "") + (error.message || "Something went wrong.");
+      }
+    }
+  }
+
+  function showThankYou(promos) {
+    app.innerHTML = "";
+    app.appendChild(el("h1", { class: "done" }, "Thanks! You're all set."));
+    // click/action offers convert on the offer's page, so give the reader the link
+    const links = promos
+      .filter((p) => p.kind === "offer" && p.offer && p.offer.redirect_url)
+      .map((p) => el("li", {}, el("a", { href: p.offer.redirect_url, target: "_blank", rel: "noopener" },
+        p.offer.call_to_action || p.offer.headline)));
+    if (links.length) {
+      app.appendChild(el("p", {}, "Finish claiming your offers:"));
+      app.appendChild(el("ul", {}, links));
+    }
+  }
+
+  document.addEventListener("sl:ready", async () => {
+    setStatus("Loading survey…");
+    try {
+      survey = await SL.client.surveys.fetch({ uuid: SURVEY_ID });
+      renderSurvey();
+    } catch (error) {
+      setStatus("Could not load the survey: " + (error.code ? `[${error.code}] ` : "") + (error.message || error), true);
+    }
+  });
+</script>
+</body>
+</html>
